@@ -4,6 +4,7 @@ pragma solidity ^0.8.0;
 import "forge-std/Test.sol";
 import {TokenUriResolver} from "../src/TokenUriResolver.sol";
 import "../src/DefifaTokenUriResolver.sol";
+import {IJBTiered721DelegateStore} from "@jbx-protocol/juice-721-delegate/contracts/interfaces/IJBTiered721DelegateStore.sol";
 
 // import "juice-project-handles/interfaces/IJBProjectHandles.sol";
 // import "base64/base64.sol";
@@ -18,9 +19,7 @@ contract ContractTest is Test {
     IJBTokenStore public tokenStore =
         IJBTokenStore(0x6FA996581D7edaABE62C15eaE19fEeD4F1DdDfE7);
     IJBSingleTokenPaymentTerminalStore public singleTokenPaymentTerminalStore =
-        IJBSingleTokenPaymentTerminalStore(
-            0xdF7Ca703225c5da79A86E08E03A206c267B7470C
-        );
+        IJBSingleTokenPaymentTerminalStore(0xdF7Ca703225c5da79A86E08E03A206c267B7470C);
     IJBController public controller =
         IJBController(0xFFdD70C318915879d5192e8a0dcbFcB0285b3C98);
     IJBOperatorStore public operatorStore =
@@ -33,18 +32,21 @@ contract ContractTest is Test {
         IReverseRegistrar(0x084b1c3C81545d370f3634392De611CaaBFf8148);
     IResolver public resolver =
         IResolver(0xA2C122BE93b0074270ebeE7f6b7292C7deB45047);
+    IJBTiered721DelegateStore public tiered721DelegateStore =
+        IJBTiered721DelegateStore(0xffB2Cd8519439A7ddcf2C933caedd938053067D2);
 
     DefaultTokenUriResolver d =
         new DefaultTokenUriResolver(
             operatorStore,
             directory,
             projectHandles,
-            capsulesTypeface
+            capsulesTypeface,
+            tiered721DelegateStore // kmac add
             // , reverseRegistrar, resolver
         );
 
      function testGetDefifaUri() external {
-         string memory x = d.getUri(369); // 1, 311, 305, 308, 323
+         string memory x = d.getUri(396); // 1, 311, 305, 308, 323
          string[] memory inputs = new string[](3);
          inputs[0] = "node";
          inputs[1] = "./open.js";
@@ -55,14 +57,14 @@ contract ContractTest is Test {
 
      function testSetTheme() external {
          Theme memory customTheme = Theme({
-             projectId: 369,
+             projectId: 396,
              textColor: "white",
              bgColor: "black",
              bgColorDark: "black"
          });
          vm.prank(0xAF28bcB48C40dBC86f52D459A6562F658fc94B1e);
          d.setTheme(customTheme);
-         string memory x = d.getUri(369); // 1, 311, 305, 308, 323
+         string memory x = d.getUri(396); // 1, 311, 305, 308, 323
          string[] memory inputs = new string[](3);
          inputs[0] = "node";
          inputs[1] = "./open.js";

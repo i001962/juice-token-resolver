@@ -1,6 +1,6 @@
 //SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
-
+import {console} from "../lib/forge-std/src/console.sol";
 import {IJBTokenUriResolver} from "@jbx-protocol/juice-contracts-v3/contracts/interfaces/IJBTokenUriResolver.sol";
 import {IJBToken, IJBTokenStore} from "@jbx-protocol/juice-contracts-v3/contracts/interfaces/IJBTokenStore.sol";
 import {JBFundingCycle} from "@jbx-protocol/juice-contracts-v3/contracts/structs/JBFundingCycle.sol";
@@ -15,8 +15,11 @@ import {JBPayoutRedemptionPaymentTerminal} from "@jbx-protocol/juice-contracts-v
 import {IJBProjects} from "@jbx-protocol/juice-contracts-v3/contracts/interfaces/IJBProjects.sol";
 import {IJBProjectHandles} from "@jbx-protocol/project-handles/contracts/interfaces/IJBProjectHandles.sol"; // Needs updating when NPM is renamed to /juice-project-handles
 import {JBOperatable} from "@jbx-protocol/juice-contracts-v3/contracts/abstract/JBOperatable.sol";
+import {IJBTiered721DelegateStore} from "@jbx-protocol/juice-721-delegate/contracts/interfaces/IJBTiered721DelegateStore.sol";
 import {JBUriOperations} from "./Libraries/JBUriOperations.sol";
 import {Theme} from "./Structs/Theme.sol";
+//import {JB721Tier} from "@jbx-protocol/juice-721-delegate/contracts/structs/JB721Tier.sol";
+import {JB721TierDefifa} from "./Structs/JB721TierDefifa.sol";
 import {Base64} from "base64-sol/base64.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {Font, ITypeface} from "typeface/interfaces/ITypeface.sol";
@@ -43,8 +46,33 @@ contract StringSlicer {
 
 contract DefaultTokenUriResolver is IJBTokenUriResolver, JBOperatable {
     using Strings for uint256;
+    // for testing
+    struct TestMintedTiers {
+        uint256 id;
+        uint256 remainingQuantity;
+        uint256 initialQuantity;
+    }
+    TestMintedTiers[] public myTestMintedTiers = [
+        TestMintedTiers({id: 1, remainingQuantity: 80, initialQuantity: 100}),
+        TestMintedTiers({id: 2, remainingQuantity: 95, initialQuantity: 100}),
+        TestMintedTiers({id: 3, remainingQuantity: 87, initialQuantity: 100}),
+        TestMintedTiers({id: 4, remainingQuantity: 92, initialQuantity: 100}),
+        TestMintedTiers({id: 5, remainingQuantity: 93, initialQuantity: 100}),
+        TestMintedTiers({id: 6, remainingQuantity: 99, initialQuantity: 100}),
+        TestMintedTiers({id: 7, remainingQuantity: 98, initialQuantity: 100}),
+        TestMintedTiers({id: 8, remainingQuantity: 95, initialQuantity: 100}),
+        TestMintedTiers({id: 9, remainingQuantity: 80, initialQuantity: 100}),
+        TestMintedTiers({id: 10, remainingQuantity: 95, initialQuantity: 100}),
+        TestMintedTiers({id: 11, remainingQuantity: 87, initialQuantity: 100}),
+        TestMintedTiers({id: 12, remainingQuantity: 92, initialQuantity: 100}),
+        TestMintedTiers({id: 13, remainingQuantity: 93, initialQuantity: 100}),
+        TestMintedTiers({id: 14, remainingQuantity: 99, initialQuantity: 100}),
+        TestMintedTiers({id: 15, remainingQuantity: 98, initialQuantity: 100}),
+        TestMintedTiers({id: 16, remainingQuantity: 95, initialQuantity: 100})
+    ];
+    
     StringSlicer slice = new StringSlicer();
-
+    
     event Log(string message);
     event ThemeSet(uint256 projectId, Theme theme);
     error InvalidTheme();
@@ -59,14 +87,18 @@ contract DefaultTokenUriResolver is IJBTokenUriResolver, JBOperatable {
     ITypeface public capsulesTypeface; // Capsules typeface
     // IReverseRegistrar public reverseRegistrar; // ENS
     // IResolver public resolver; // ENS
-
+    IJBTiered721DelegateStore public tiered721DelegateStore;
     mapping(uint256 => Theme) public themes;
+
+    // ?? Should this be in constructor? how to get this address? Deploy script??
+    address internal _NFT_ADDRESS = 0x600f3b83cD74175B9f10867B8218855d755c8923;
 
     constructor(
         IJBOperatorStore _operatorStore,
         IJBDirectory _directory,
         IJBProjectHandles _projectHandles,
-        ITypeface _capsulesTypeface
+        ITypeface _capsulesTypeface,
+        IJBTiered721DelegateStore _tiered721DelegateStore
     )
         // IReverseRegistrar _reverseRegistrar,
         // IResolver _resolver
@@ -88,6 +120,7 @@ contract DefaultTokenUriResolver is IJBTokenUriResolver, JBOperatable {
         );
         projectHandles = _projectHandles;
         capsulesTypeface = _capsulesTypeface;
+        tiered721DelegateStore = _tiered721DelegateStore;
         // reverseRegistrar = _reverseRegistrar;
         // resolver = _resolver;
         themes[0] = Theme({
@@ -221,8 +254,7 @@ contract DefaultTokenUriResolver is IJBTokenUriResolver, JBOperatable {
     {
         uint256 currentFundingCycleId = _fundingCycle.number; // Project's current funding cycle id
         string memory fundingCycleIdString = currentFundingCycleId.toString();
-        return
-            pad(false, string.concat(unicode"Phase ", fundingCycleIdString), 17);
+        return string.concat(unicode"Phase ", fundingCycleIdString);
     }
 
     function getLeftPaddedTimeLeft(JBFundingCycle memory _fundingCycle)
@@ -237,42 +269,25 @@ contract DefaultTokenUriResolver is IJBTokenUriResolver, JBOperatable {
         string memory paddedTimeLeft;
         string memory countString;
         if (duration == 0) {
-            paddedTimeLeft = string.concat(
-                pad(true, string.concat(unicode" ɴoᴛ sᴇᴛ"), 22),
-                "  "
-            ); // If the funding cycle has no duration, show infinite duration
+            paddedTimeLeft = string.concat("Not set"); // If the funding cycle has no duration, show infinite duration
         } else {
             timeLeft = start + duration - block.timestamp; // Project's current funding cycle time left
             if (timeLeft > 2 days) {
                 countString = (timeLeft / 1 days).toString();
                 paddedTimeLeft = string.concat(
-                    pad(
-                        true,
-                        string.concat(
+                            " ",
                             unicode"",
                             " ",
                             countString,
-                            unicode" ᴅᴀʏs"
-                        ),
-                        20
-                    ),
-                    "  "
-                );
+                            " Days");
             } else if (timeLeft > 2 hours) {
                 countString = (timeLeft / 1 hours).toString(); // 12 bytes || 8 visual + countString
                 paddedTimeLeft = string.concat(
-                    pad(
-                        true,
-                        string.concat(
                             unicode"",
                             " ",
                             countString,
                             unicode" ʜouʀs"
-                        ),
-                        17
-                    ),
-                    "  "
-                );
+                        );
             } else if (timeLeft > 2 minutes) {
                 countString = (timeLeft / 1 minutes).toString();
                 paddedTimeLeft = string.concat(
@@ -329,15 +344,9 @@ contract DefaultTokenUriResolver is IJBTokenUriResolver, JBOperatable {
             IJBSingleTokenPaymentTerminal(address(primaryEthPaymentTerminal)),
             _projectId
         ) / 10**18; // Project's ETH balance //TODO Try/catch
-        string memory paddedBalanceLeft = string.concat(
-            pad(true, string.concat(unicode"Ξ", balance.toString()), 14),
-            "  "
-        ); // Project's ETH balance as a string
-        string memory paddedBalanceRight = pad(
-            false,
-            unicode"ʙᴀʟᴀɴcᴇ ",
-            24
-        ); // ʙ = 2,    ᴀ = 3, ʟ = 2, ᴀ = 3, ɴ = 2, E = 3
+        string memory paddedBalanceLeft = string.concat(unicode"Ξ", balance.toString());
+        // Project's ETH balance as a string
+        string memory paddedBalanceRight = "Prize pool:   ";
         return string.concat(paddedBalanceRight, paddedBalanceLeft);
     }
 
@@ -404,7 +413,34 @@ contract DefaultTokenUriResolver is IJBTokenUriResolver, JBOperatable {
         );
         return string.concat(paddedTotalSupplyRight, paddedTotalSupplyLeft);
     }
-
+    function getTotalMinted(address _nft)
+        internal
+        view
+        returns (string memory totalMint)
+    {
+        // Minted
+        uint256 totalMinted = tiered721DelegateStore.totalSupply(_nft); // Project's _nft address
+        string memory paddedTotalMintedLeft = string.concat(
+            pad(true, totalMinted.toString(), 13),
+            "  "
+        ); // Project's token total mint as a string
+        string memory paddedTotalMintedRight = "Total minted: ";
+        return string.concat(paddedTotalMintedRight,  totalMinted.toString());
+    }
+    
+    /* function getTiersMinted(address _nft)
+        internal
+        view
+        returns (string memory tiers)
+    {
+        // Minted  
+        JB721TierDefifa[] memory totalTiersMinted = tiered721DelegateStore.tiers(_nft,0,0,32);
+        string memory paddedTotalMintedLeft =
+            totalTiersMinted[0].id.toString(); // Project's token total mint as a string
+        console.log(paddedTotalMintedLeft);
+        string memory paddedTotalMintedRight = "Total minted: ";
+        return string.concat(paddedTotalMintedRight,  paddedTotalMintedLeft);
+    } */
     // function setTokenUriResolverForProject(uint256 _projectId, IJBTokenUriResolver _resolver) external requirePermission(projects.ownerOf(_projectId), _projectId, JBUriOperations.SET_TOKEN_URI) {
     //     if(_resolver == IJBTokenUriResolver(address(0))){
     //         delete tokenUriResolvers[_projectId];
@@ -412,6 +448,44 @@ contract DefaultTokenUriResolver is IJBTokenUriResolver, JBOperatable {
     //         tokenUriResolvers[_projectId]= _resolver;
     //     }
     // }
+    function getMintedTiersTest(address _nft)
+        internal
+        view
+        returns (string memory mintedChart)
+    {
+        // Tiers and Minted  
+        // JB721TierDefifa[] memory totalTiersMinted = tiered721DelegateStore.tiers(_nft,0,0,32);
+        string memory paddedTotalMintedRight = "ID:";
+        string[] memory parts = new string[](11);
+        string memory textHolder;
+        uint256 yValue = 40;
+        uint256 xValue = 65;
+        
+        //string memory textHolder;
+        for (uint256 i = 0; i < myTestMintedTiers.length; i++) {
+            yValue = yValue + 20;
+            uint256 yBarValue = yValue - 7;
+            uint256 amtMinted = myTestMintedTiers[i].initialQuantity - myTestMintedTiers[i].remainingQuantity;
+            string memory amtMintedString = amtMinted.toString();
+            parts[0] = string('<text x="15" y="');
+            parts[1] = string(yValue.toString());
+            parts[2] = string('" style="font-size: 1rem;">');
+            parts[3] = string.concat(myTestMintedTiers[i].id.toString(), "- ", amtMintedString);
+            parts[4] = string('</text>');
+            //parts[5] = string('<line x1="20" y1="380" x2="100" y2="380" style="stroke:#ED7149;stroke-width:15" />');
+            parts[5] = string('<line x1="65" y1="');
+            parts[6] = string(yBarValue.toString());
+            parts[7] = string('" x2="');
+            uint256 barLength = amtMinted + xValue;
+            string memory barLengthString = barLength.toString();
+            parts[8] = string(barLengthString);
+            parts[9] = string('" y2="');
+            parts[10] = string.concat(parts[6],'" style="stroke:#FAC15C;stroke-width:15" />');         
+            textHolder = string.concat(textHolder,parts[0], parts[1], parts[2],parts[3],parts[4], parts[5], parts[6], parts[7], parts[8], parts[9], parts[10]);
+        }
+        return string.concat(textHolder);
+    }
+
 
     // TODO write tests
     function setTheme(Theme memory _theme)
@@ -512,13 +586,13 @@ contract DefaultTokenUriResolver is IJBTokenUriResolver, JBOperatable {
         // The first line (head) is an exception.
         parts[2] = Base64.encode(
             abi.encodePacked(
-                '<svg width="500" height="500" viewBox="0 0 500 500" xmlns="http://www.w3.org/2000/svg"><style>@font-face{font-family:"Capsules-500";src:url(data:font/truetype;charset=utf-8;base64,',
+                '<svg width="500" height="600" viewBox="0 0 500 500" xmlns="http://www.w3.org/2000/svg"><style>@font-face{font-family:"Capsules-500";src:url(data:font/truetype;charset=utf-8;base64,',
                 getFontSource(), // import Capsules typeface
                 ');format("opentype");}a,a:visited,a:hover{fill:inherit;text-decoration:none;}text{font-size:16px;fill:',
                 theme.textColor,
                 ';font-family:"Capsules-500",monospace;font-weight:500;white-space:pre;}#head text{fill:',
                 theme.bgColor,
-                ';}</style><g clip-path="url(#clip0)"><path d="M500 0H0V500H500V0Z" fill="url(#paint0)"/><rect width="500" height="22" fill="',
+                ';}</style><g clip-path="url(#clip0)"><path d="M500 0H0V500H500V0Z" fill="url(#paint1)"/><rect width="500" height="22" fill="',
                 theme.textColor,
                 '"/><g id="head">',
                                 // Hoops
@@ -547,36 +621,31 @@ contract DefaultTokenUriResolver is IJBTokenUriResolver, JBOperatable {
                         'M344.174,464.169h-16.267v-16.267h16.267V464.169z M344.174,432.153h-16.267v-16.266h16.267V432.153z M344.174,400.137h-16.267',
                         'V383.87h16.267V400.137z M344.174,368.12h-16.267v-16.266h16.267V368.12z"/>',
                 '</g>',
-                '<g>',
-                    '<rect x="40" y="48" style="fill:#FFFFFF;" width="100" height="15.75"/>',
-                    '<rect x="150" y="48" style="fill:#FFFFFF;" width="80" height="15.75"/>',
-                '</g>',
                 //end hoops
                 '<a href="https://juicebox.money/v2/p/',
                 _projectId.toString(),
                 '">', // Line 0: Head
-                '<text x="42" y="62">',
+                '<text x="42" y="45">',
                 projectName,
-                '</text></a><a href="https://juicebox.money"><text x="259.25" y="62">',
+                '</text></a>',
+                '<a href="https://juicebox.money"><text x="420" y="45">',
                 unicode"",
                 "</text></a></g>",
                 // Line 1: FC + Time left
-                '<g filter="url(#filter1)"><text x="152" y="62">',
+                '<g><text x="105" y="210" style="font-size: 1.75rem;">',
                 getFCTimeLeftRow(fundingCycle),
                 "</text>",
-                // Line 2: Spacer
-                '<text x="0" y="64">',
-                unicode"                              ",
-                "</text>",
-                // Line 3: Balance
-                '<text x="6" y="120">',
+                '<text x="105" y="130" style="font-size: 1.75rem;">',
                 getBalanceRow(primaryEthPaymentTerminal, _projectId),
                 "</text>",
-                // Line 6: Cost to play plug
-                '<text x="6" y="140">',
-                getTotalSupplyRow(_projectId),
+                '<text x="105" y="170" style="font-size: 1.75rem;">',
+                getTotalMinted(_NFT_ADDRESS),
                 "</text>",
-                '</g></g><defs><filter id="filter1" x="-3.36" y="26.04" width="294.539" height="126.12" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/><feOffset/><feGaussianBlur stdDeviation="2"/><feComposite in2="hardAlpha" operator="out"/> <feColorMatrix type="matrix" values="0 0 0 0 1 0 0 0 0 0.572549 0 0 0 0 0.0745098 0 0 0 0.68 0"/><feBlend mode="normal" in2="BackgroundImageFix" result="effect1_dropShadow_150_56"/><feBlend mode="normal" in="SourceGraphic" in2="effect1_dropShadow_150_56" result="shape"/></filter><linearGradient id="paint0" x1="0" y1="202" x2="500" y2="202" gradientUnits="userSpaceOnUse"><stop stop-color="',
+                //'<text x="15" y="380" style="font-size: 1rem;">',
+                //getTiersMinted(_NFT_ADDRESS),
+                getMintedTiersTest(_NFT_ADDRESS),
+                //"</text>",
+                '</g></g><defs><filter id="filter1" x="-3.36" y="26.04" width="294.539" height="226.12" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/><feOffset/><feGaussianBlur stdDeviation="2"/><feComposite in2="hardAlpha" operator="out"/> <feColorMatrix type="matrix" values="0 0 0 0 1 0 0 0 0 0.572549 0 0 0 0 0.0745098 0 0 0 0.68 0"/><feBlend mode="normal" in2="BackgroundImageFix" result="effect1_dropShadow_150_56"/><feBlend mode="normal" in="SourceGraphic" in2="effect1_dropShadow_150_56" result="shape"/></filter><linearGradient id="paint0" x1="0" y1="202" x2="500" y2="202" gradientUnits="userSpaceOnUse"><stop stop-color="',
                 theme.bgColorDark,
                 '"/><stop offset="0.119792" stop-color="',
                 theme.bgColor,
@@ -584,7 +653,7 @@ contract DefaultTokenUriResolver is IJBTokenUriResolver, JBOperatable {
                 theme.bgColor,
                 '"/><stop offset="1" stop-color="',
                 theme.bgColorDark,
-                '"/></linearGradient><clipPath id="clip0"><rect width="500" height="500" /></clipPath></defs></svg>'
+                '"/></linearGradient><clipPath id="clip0"><rect width="500" height="600" /></clipPath></defs></svg>'
             )
         );
         parts[3] = string('"}');
